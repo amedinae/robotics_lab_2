@@ -377,4 +377,4 @@ end
 
 En el siguiente video se encuentra el funcionamiento de todos los codigos mostrados en este repositorio.
 
-[![Watch the video](https://img.youtube.com/vi/PKbFPb0k8nU/default.jpg)](https://youtu.be/PKbFPb0k8nU)
+[![Watch the video](https://img.youtube.com/vi/PKbFPb0k8nU/maxresdefault.jpg)](https://youtu.be/PKbFPb0k8nU)
