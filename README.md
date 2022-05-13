@@ -213,10 +213,9 @@ Se hizo uso del visualizador de ROS para poder observar en pantalla los movimien
 
 </launch>
 ```
-Se debe ejecutar primero `px_controllers.launch`, luego `px_rviz_dyna.launch` y finalmente nuestro script de Python. El resultado de esta practica puede verse en el siguiente gif:
+Se debe ejecutar primero `px_controllers.launch`, luego `px_rviz_dyna.launch` y finalmente nuestro script de Python.
 
-
-## Matlab Peter Corke Toolbox
+## Toolbox
 ### Creacion de una función prettify propia
 
 Debido a que MATLAB bajo operaciones computacionales imprime 0's computacionales en una notacion muy extraña, fue necesario crear una funcion que permitiera arreglar estos errores numericos para una impresión amigable con el usuario:
@@ -265,5 +264,115 @@ MTH =
 [                                   -sin(q2 + q3 + q4),        0,                                     cos(q2 + q3 + q4),    85*cos(q2 + q3 + q4) + 106*cos(q2 + q3) + 106*cos(q2) + 163/4]
 [                                                    0,        0,                                                     0,                                                                1]
 ```
- 
 
+## Conexión con Matlab
+
+Publicar a un topico del robot desde Matlab es muy simple:
+- Primeramente debemos iniciar el nodo master de ROS usando `rosinit`.
+- Luego, Obtenemos el servicio mediante el cual publicaremos mensajes usando `rossvcclient` y pasando como parametro el nombre del servicio.
+- Creamos nuestro mensaje usando `rosmessage` y pasando como parametro el servcio creadoa en el anterior paso.
+- Definimos los parametros del mensaje a enviar, los cuales son:
+    - `AddrName`: Un string que indica el nombre del topico al que vamos a enviar valores.
+    - `Id`: Un numero entre 1 y 5 que indica el ID del motor que se quiere mover.
+    - `Value`: Un numero entre 0 y 1023 que indica la posición a la que se debe mover el motor.
+- Llamamos nuestro servicio usando `call` y pasando como primer parametro el servicio y como segundo nuestro mensaje.
+
+En el siguiente codigo enviamos el robot primero a home y luego a una posición aleatoria:
+```matlab
+rosinit; %Inicializamos el nodo master de ROS
+
+motorSvcClient = rossvcclient('/dynamixel_workbench/dynamixel_command'); %Obtenemos el servicio
+motorCommandMsg = rosmessage(motorSvcClient); % Creamos nuestro mensaje
+motorCommandMsg.AddrName = "Goal_Position" ; %Definimos el parametro  
+
+q1 = zeros(5,1) % Posición de home del robot
+for i=1:length(q1)
+    motorCommandMsg.Id = i; % Seteamos el ID de motor que queremos mover
+    motorCommandMsg.Value = round(mapfun(q1(i),-150,150,0,1023)); % Seteamos la posición a la que se moveera el motor
+    call(motorSvcClient,motorCommandMsg); % Llamamos al servicio enviando nuestro mensaje
+    pause(1); % Delay de 1 segundo
+end
+
+q2 = [-90, 35, -55, -87, 45]; % Posición de objetivo del robot
+for i=1:length(q2)
+    motorCommandMsg.Id = i; % Seteamos el ID de motor que queremos mover
+    motorCommandMsg.Value = round(mapfun(q2(i),-150,150,0,1023)); % Seteamos la posición a la que se moveera el motor
+    call(motorSvcClient,motorCommandMsg); % Llamamos al servicio enviando nuestro mensaje
+    pause(1); % Delay de 1 segundo   
+end
+
+% Función para mapear los valores de [-150,150] grados a [0,1023] 
+function output = mapfun(value,fromLow,fromHigh,toLow,toHigh) 
+    narginchk(5,5)
+    nargoutchk(0,1)
+    output = (value-fromLow) .* (toHigh - toLow) ./ (fromHigh - fromLow)+ toLow;
+end
+```
+Subscribirse a un topico y obtener la configuración de las juntas del robot es aún mas sencillo:
+- Nos subscribimos al servicio usando `rossubscriber` y pasando como parametro el nombre del servicio.
+- Del ultimo mensaje del servicio `.LastestMessage` leemos la propidad que nos interesa, para este caso, `.Position`.
+
+Para tener la posición actualizada constantemente la leemos dentro de un ciclo infinito:
+```matlab
+sub = rossubscriber('/dynamixel_workbench/joint_states'); % Nos subscribimos al servicio que deseamos
+while(true)
+    sub.LatestMessage.Position % Leemos la posición del servicio
+end
+```
+## Matlab + ROS + Toolbox:
+Finalmente podemos utilizar todo lo anterior para definir en Matlab multiples configuraciones, plotearlas en Matlab y mover el robot real a cada una: 
+```matlab
+lenghts = [40.75 106 106 85]; % Longitud de eslabones
+
+% Creación de un arreglo de eslabones
+L(1) = Link('revolute','d', lenghts(1), 'a', 0, 'alpha', pi/2);
+L(2) = Link('revolute','d', 0, 'a', lenghts(2), 'alpha', 0,'offset',pi/2);
+L(3) = Link('revolute','d', 0, 'a', lenghts(3), 'alpha', 0);
+L(4) = Link('revolute','d', 0, 'a', lenghts(4), 'alpha', 0);
+
+robot = SerialLink(L); % Secrea un robot serial apartir del arreglo de eslabones
+robot.tool=[0 0 1 0; 1 0 0 0;0 1 0 0;0 0 0 1]; % MTH que define la posición de la herramienta con respecto al ultimo eslabon
+
+syms q1 q2 q3 q4 % Variables simbolicas para modelar el robot de forma parametrica
+
+% Multiples configuraciones para el robot
+q_1 = [0 0 0 0 0];
+q_2 = [-20 -20 -20 -20 0];
+q_3 = [30,-30, 30, -30, 0];
+q_4 = [-90, 15, -55, 17, 0];
+q_5 = [-90, 45, -55, 45, 10];
+
+% Arreglo de configuraciones
+targets = [q_1;q_2;q_3;q_4;q_5];
+% Arreglo de variables simbolicas
+q_s = [q1 q2 q3 q4];
+
+% Calculo de matrices de transformación
+MTH1 = prettify(L(1).A(q1));
+MTH2 = prettify(L(2).A(q2));
+MTH3 = prettify(L(3).A(q3));
+MTH4 = prettify(L(4).A(q4));
+MTH = simplify(MTH1*MTH2*MTH3*MTH4*robot.tool)
+MTHd = double(subs(MTH,[q1 q2 q3 q4], q_0));
+MTH2 = robot.fkine(q_s);
+MTH2d = double(subs(MTH2,[q1 q2 q3 q4], q_0));
+%%
+rosinit %Inicializamos el nodo master de ROS
+motorSvcClient = rossvcclient('/dynamixel_workbench/dynamixel_command');  %Obtenemos el servicio
+motorCommandMsg = rosmessage(motorSvcClient); % Creamos nuestro mensaje
+%%
+motorCommandMsg.AddrName = "Goal_Position" ; %Definimos el parametro que vamos a modificar 
+for i=1:length(targets) % Recorremos el arreglo de configuraciones 
+    robot.plot(pi/180*targets(i,1:4),'notiles','noname','noa') % Ploteamos el robot para la configuración dada en Matlab
+    disp(i);
+    for j=1:length(targets(i)) % Recorremos los angulos dentro de cada configuración
+        motorCommandMsg.Id = j; % Seteamos el ID de motor que queremos mover
+        motorCommandMsg.Value = round(mapfun(targets(i,j),-150,150,0,1023)); % Seteamos la posición a la que se moveera el motor
+        call(motorSvcClient,motorCommandMsg); % Llamamos al servicio enviando nuestro mensaje
+        pause(1); % Delay de 1 segundo 
+    end
+    pause(2); % Delay de 2 segundos
+end
+```
+
+En el siguiente video se encuentra el funcionamiento de todos los codigos mostrados en este repositorio.
